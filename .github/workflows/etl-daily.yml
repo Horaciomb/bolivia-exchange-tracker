@@ -1,0 +1,39 @@
+name: ETL diario
+
+# Ejecuta el pipeline ETL una vez al dia y permite dispararlo manualmente.
+on:
+  schedule:
+    # 23:00 UTC = 19:00 hora Bolivia (UTC-4). Cron siempre es UTC.
+    - cron: "0 23 * * *"
+  workflow_dispatch: {}
+
+# Evita corridas solapadas si una tarda mas de lo esperado.
+concurrency:
+  group: etl-daily
+  cancel-in-progress: false
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pipeline
+        # DATABASE_URL debe configurarse en:
+        # Settings > Secrets and variables > Actions > New repository secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m src.etl.pipeline
