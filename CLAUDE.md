@@ -16,13 +16,18 @@ no solo en que "funcione".
 
 - **Lenguaje:** Python 3.11+
 - **ETL:** requests + pandas
-- **Base de datos:** PostgreSQL en Supabase (cliente: supabase-py o psycopg2)
+- **Base de datos:** PostgreSQL en Supabase, **esquema dedicado `fx`** dentro de
+  una instancia compartida con otros proyectos (NO es un proyecto Supabase nuevo).
+  Conexión vía `DATABASE_URL` directo con psycopg2/SQLAlchemy — NO usar el cliente
+  supabase-py, para evitar la restricción de "exposed schemas" y poder acceder
+  libremente al esquema `fx`.
 - **API:** FastAPI + uvicorn
 - **Validación:** pydantic v2
 - **Tests:** pytest
 - **Orquestación:** GitHub Actions (cron diario)
 - **Deploy API:** Render.com (free tier)
-- **Gestión de entorno:** python-dotenv para local, variables de entorno en prod
+- **Gestión de entorno:** python-dotenv para local, variables de entorno en prod.
+  Solo se necesita `DATABASE_URL` (conexión directa). No se usa SUPABASE_KEY.
 - **Linting:** ruff
 
 ## Fuente de datos
@@ -61,7 +66,7 @@ bolivia-exchange-tracker/
 │   │   ├── __init__.py
 │   │   ├── extract.py       # llama a DolarApi, retorna raw dict
 │   │   ├── transform.py     # limpia, calcula brecha, valida con pydantic
-│   │   ├── load.py          # upsert a Supabase (idempotente por fecha+casa)
+│   │   ├── load.py          # upsert a fx.exchange_rates (idempotente por fecha+casa)
 │   │   └── pipeline.py      # orquesta extract→transform→load, entry point
 │   ├── models/
 │   │   └── schemas.py       # modelos pydantic (RawQuote, CleanQuote)
@@ -86,11 +91,16 @@ bolivia-exchange-tracker/
 
 ## Modelo de datos
 
-Tabla `exchange_rates` en Supabase:
+**Esquema dedicado:** este proyecto vive en su propio esquema `fx` dentro de una
+instancia PostgreSQL compartida con otros proyectos. Esto aísla lógicamente el
+proyecto sin necesidad de crear una instancia Supabase nueva. Los demás proyectos
+(en `public` u otros esquemas) no se ven afectados.
+
+Tabla `fx.exchange_rates`:
 
 | Columna           | Tipo          | Notas                                   |
 |-------------------|---------------|-----------------------------------------|
-| id                | bigint        | PK, identity                            |
+| id                | bigint        | PK, GENERATED ALWAYS AS IDENTITY        |
 | fecha             | date          | fecha de la cotización                  |
 | casa              | text          | 'oficial' o 'binance'                   |
 | compra            | numeric(10,4) | precio compra                           |
@@ -101,6 +111,44 @@ Tabla `exchange_rates` en Supabase:
 
 **Constraint de idempotencia:** UNIQUE(fecha, casa). El load hace UPSERT
 (ON CONFLICT) para que correr el ETL dos veces el mismo día no duplique filas.
+
+**DDL de referencia** (el archivo final va en `sql/schema.sql`):
+```sql
+CREATE SCHEMA IF NOT EXISTS fx;
+
+CREATE TABLE IF NOT EXISTS fx.exchange_rates (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fecha date NOT NULL,
+    casa text NOT NULL,
+    compra numeric(10,4),
+    venta numeric(10,4),
+    brecha_pct numeric(6,2),
+    fecha_actualizacion timestamptz,
+    created_at timestamptz DEFAULT now(),
+    CONSTRAINT uq_fecha_casa UNIQUE (fecha, casa)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fx_rates_fecha ON fx.exchange_rates (fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_fx_rates_casa_fecha ON fx.exchange_rates (casa, fecha DESC);
+```
+
+**Acceso al esquema desde el código:** en `database.py`, al abrir la conexión,
+setear el search_path para no tener que calificar `fx.` en cada query:
+```python
+cursor.execute("SET search_path TO fx, public;")
+```
+Aun así, en el DDL y en cualquier DML crítico, calificar explícitamente con
+`fx.exchange_rates` para evitar ambigüedad.
+
+**Aislamiento de seguridad (opcional pero recomendado para el ángulo de
+gobernanza del CV):** si quieres reforzar el control de acceso, se puede crear
+un rol específico con permisos solo sobre el esquema `fx`:
+```sql
+-- ejecutar como admin, opcional
+GRANT USAGE ON SCHEMA fx TO <rol_app>;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA fx TO <rol_app>;
+```
+Para esta fase del portfolio NO es obligatorio; basta con el esquema separado.
 
 ## Lógica de transformación
 
@@ -149,8 +197,9 @@ El CI debe correr `ruff check` y `pytest` — ambos deben pasar.
 
 ## Lo que NO debe hacer Claude Code
 
-- NO crear las credenciales de Supabase ni el proyecto en Render — eso lo hace
-  el usuario manualmente (ver pasos externos).
+- NO crear un proyecto Supabase nuevo. Este proyecto reutiliza una instancia
+  existente y vive en el esquema `fx`. El usuario solo ejecutará el schema.sql
+  (que crea el esquema y la tabla) y pasará el DATABASE_URL.
 - NO commitear el archivo .env (debe estar en .gitignore).
 - NO inventar el formato de la API — hacer un curl real primero y ajustar.
 - NO sobre-ingenierizar: nada de Airflow, Kafka, ni Docker en esta fase. El
