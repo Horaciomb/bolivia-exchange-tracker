@@ -229,6 +229,13 @@ endpoint de la API.
 El ETL requiere el secret **`DATABASE_URL`** configurado en
 *Settings → Secrets and variables → Actions*.
 
+> ⚠️ **IPv4 / pooler:** la conexión **directa** de Supabase
+> (`db.<ref>.supabase.co:5432`) resuelve solo a **IPv6**, y los runners de GitHub
+> Actions **no tienen salida IPv6** (fallan con `Network is unreachable`). En el
+> secret usa el string del **pooler (Supavisor, IPv4)**: *Dashboard → Project
+> Settings → Database → Connection string → "Session pooler"*
+> (`postgres.<ref>@aws-0-<region>.pooler.supabase.com:5432`).
+
 ---
 
 ## 📦 Deploy de la API (Render)
@@ -236,7 +243,8 @@ El ETL requiere el secret **`DATABASE_URL`** configurado en
 1. Crear un *Web Service* en [Render](https://render.com) apuntando al repo.
 2. **Build:** `pip install -r requirements.txt`
 3. **Start:** `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
-4. Configurar la variable de entorno `DATABASE_URL`.
+4. Configurar `DATABASE_URL` con el string del **pooler IPv4** de Supabase
+   (igual que en CI: Render tampoco hace IPv6 por defecto).
 
 ---
 
