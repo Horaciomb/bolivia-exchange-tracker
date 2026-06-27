@@ -5,6 +5,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![API en vivo](https://img.shields.io/badge/API-en%20vivo-brightgreen.svg)](https://bolivia-exchange-tracker-api.onrender.com/docs)
 
 Pipeline **ETL** que extrae diariamente las cotizaciones del dólar en Bolivia
 (oficial y paralelo/Binance), las almacena en **PostgreSQL**, calcula la **brecha
@@ -12,6 +13,16 @@ cambiaria** y las expone mediante una **API REST** pública documentada con Swag
 
 Proyecto de portafolio de **Ingeniería de Datos**: el énfasis está en la calidad
 del código, los tests y la documentación — no solo en que "funcione".
+
+## 🔗 Demo en vivo
+
+- **API:** <https://bolivia-exchange-tracker-api.onrender.com>
+- **Documentación (Swagger):** <https://bolivia-exchange-tracker-api.onrender.com/docs>
+- Ejemplos: [`/rates/latest`](https://bolivia-exchange-tracker-api.onrender.com/rates/latest) ·
+  [`/rates/brecha?dias=30`](https://bolivia-exchange-tracker-api.onrender.com/rates/brecha?dias=30) ·
+  [`/stats/summary`](https://bolivia-exchange-tracker-api.onrender.com/stats/summary)
+
+> Alojada en Render (plan free): el primer request tras inactividad puede tardar ~50s.
 
 ---
 
