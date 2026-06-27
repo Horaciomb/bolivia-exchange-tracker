@@ -27,6 +27,7 @@ class RateOut(BaseModel):
     venta: float
     brecha_pct: float | None = None
     fecha_actualizacion: datetime
+    imputado: bool = False
 
 
 class HistoryPage(BaseModel):

@@ -77,10 +77,17 @@ PostgreSQL compartida (no requiere un proyecto Supabase nuevo). Tabla
 | `venta` | numeric(10,4) | Precio de venta |
 | `brecha_pct` | numeric(6,2) | Solo binance: `%` sobre el oficial |
 | `fecha_actualizacion` | timestamptz | Timestamp original de la fuente |
+| `imputado` | boolean | `true` si la fila es estimada (backfill), no real |
 | `created_at` | timestamptz | `default now()` |
 
 **Idempotencia:** `UNIQUE (fecha, casa)` + UPSERT (`ON CONFLICT`), de modo que
 correr el ETL varias veces el mismo día actualiza la fila en lugar de duplicarla.
+
+**Integridad de datos (`imputado`):** DolarApi solo expone la cotización actual
+(sin histórico), así que un día perdido no se puede recuperar de la fuente. Si se
+hace *backfill* de un hueco, la fila se inserta con `imputado = true` (estimada por
+interpolación o carry-forward) para distinguirla de los datos reales. El pipeline
+diario siempre carga `imputado = false`. El API expone este flag en cada cotización.
 
 La **brecha cambiaria** se calcula como:
 
