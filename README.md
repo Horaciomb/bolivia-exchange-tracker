@@ -6,6 +6,7 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![API en vivo](https://img.shields.io/badge/API-en%20vivo-brightgreen.svg)](https://bolivia-exchange-tracker-api.onrender.com/docs)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 Pipeline **ETL** que extrae diariamente las cotizaciones del dólar en Bolivia
 (oficial y paralelo/Binance), las almacena en **PostgreSQL**, calcula la **brecha
@@ -275,4 +276,4 @@ servicio como código (build, start, health check, Python 3.11).
 
 ## 📄 Licencia
 
-Distribuido bajo licencia MIT.
+Distribuido bajo licencia **MIT**. Ver [LICENSE](LICENSE) para el texto completo.
