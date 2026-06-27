@@ -1,0 +1,23 @@
+# Render Blueprint (Infrastructure as Code) para la API FastAPI.
+# Deploy: Render Dashboard -> New + -> Blueprint -> conectar este repo.
+# Spec: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: bolivia-exchange-tracker-api
+    runtime: python
+    plan: free
+    region: oregon # US West, cercano al Supabase en us-west-2
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DOLARAPI_BASE_URL
+        value: https://bo.dolarapi.com
+      # Secreto: NO se commitea. Se configura en el dashboard con el string del
+      # POOLER de Supabase (IPv4) — Render no tiene IPv6, igual que GitHub Actions.
+      - key: DATABASE_URL
+        sync: false
