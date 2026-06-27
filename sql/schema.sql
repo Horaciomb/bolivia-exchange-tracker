@@ -18,11 +18,16 @@ CREATE TABLE IF NOT EXISTS fx.exchange_rates (
     venta               numeric(10, 4) NOT NULL,
     brecha_pct          numeric(6, 2),                       -- solo binance: % sobre oficial
     fecha_actualizacion timestamptz   NOT NULL,              -- timestamp original de la fuente
+    imputado            boolean       NOT NULL DEFAULT false, -- true si la fila es estimada (backfill), no real
     created_at          timestamptz   NOT NULL DEFAULT now(),
 
     CONSTRAINT exchange_rates_casa_chk CHECK (casa IN ('oficial', 'binance')),
     CONSTRAINT uq_fecha_casa UNIQUE (fecha, casa)
 );
+
+-- Migracion idempotente: agrega `imputado` en tablas creadas antes de esta columna.
+ALTER TABLE fx.exchange_rates
+    ADD COLUMN IF NOT EXISTS imputado boolean NOT NULL DEFAULT false;
 
 -- Optimizan las queries /rates/latest, /rates/history y /rates/brecha del API.
 CREATE INDEX IF NOT EXISTS idx_fx_rates_fecha

@@ -66,6 +66,8 @@ class CleanQuote(BaseModel):
         brecha_pct: Porcentaje de brecha sobre el oficial. Solo se calcula
             para binance; ``None`` para oficial o si no se pudo calcular.
         fecha_actualizacion: Timestamp original de la fuente (UTC).
+        imputado: True si la fila es estimada (p. ej. backfill por interpolación),
+            no un dato real de la fuente. El pipeline normal la deja en False.
     """
 
     fecha: date
@@ -74,3 +76,4 @@ class CleanQuote(BaseModel):
     venta: float
     brecha_pct: float | None = None
     fecha_actualizacion: datetime
+    imputado: bool = False

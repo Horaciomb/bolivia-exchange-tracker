@@ -18,6 +18,7 @@ OFICIAL_ROW = {
     "venta": 6.96,
     "brecha_pct": None,
     "fecha_actualizacion": datetime(2026, 6, 25, 21, 1, 5),
+    "imputado": False,
 }
 BINANCE_ROW = {
     "fecha": date(2026, 6, 25),
@@ -26,6 +27,7 @@ BINANCE_ROW = {
     "venta": 9.87,
     "brecha_pct": 41.81,
     "fecha_actualizacion": datetime(2026, 6, 25, 21, 1, 6),
+    "imputado": False,
 }
 
 
@@ -67,6 +69,7 @@ def test_latest_by_casa_ok(monkeypatch):
     body = resp.json()
     assert body["casa"] == "binance"
     assert body["brecha_pct"] == 41.81
+    assert body["imputado"] is False
 
 
 def test_latest_by_casa_404(monkeypatch):

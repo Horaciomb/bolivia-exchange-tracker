@@ -16,7 +16,7 @@ from src.api.database import get_cursor
 logger = logging.getLogger(__name__)
 
 # Columnas expuestas en las respuestas de cotizacion.
-_RATE_COLS = "fecha, casa, compra, venta, brecha_pct, fecha_actualizacion"
+_RATE_COLS = "fecha, casa, compra, venta, brecha_pct, fecha_actualizacion, imputado"
 
 
 def check_db() -> bool:

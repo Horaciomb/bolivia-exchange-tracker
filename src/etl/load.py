@@ -22,15 +22,16 @@ logger = logging.getLogger(__name__)
 # ademas del search_path que se setea al abrir la conexion.
 _UPSERT_SQL = """
     INSERT INTO fx.exchange_rates
-        (fecha, casa, compra, venta, brecha_pct, fecha_actualizacion)
+        (fecha, casa, compra, venta, brecha_pct, fecha_actualizacion, imputado)
     VALUES
         (%(fecha)s, %(casa)s, %(compra)s, %(venta)s, %(brecha_pct)s,
-         %(fecha_actualizacion)s)
+         %(fecha_actualizacion)s, %(imputado)s)
     ON CONFLICT (fecha, casa) DO UPDATE SET
         compra              = EXCLUDED.compra,
         venta               = EXCLUDED.venta,
         brecha_pct          = EXCLUDED.brecha_pct,
-        fecha_actualizacion = EXCLUDED.fecha_actualizacion;
+        fecha_actualizacion = EXCLUDED.fecha_actualizacion,
+        imputado            = EXCLUDED.imputado;
 """
 
 
