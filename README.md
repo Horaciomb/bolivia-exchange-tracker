@@ -247,11 +247,18 @@ El ETL requiere el secret **`DATABASE_URL`** configurado en
 
 ## 📦 Deploy de la API (Render)
 
-1. Crear un *Web Service* en [Render](https://render.com) apuntando al repo.
-2. **Build:** `pip install -r requirements.txt`
-3. **Start:** `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`
-4. Configurar `DATABASE_URL` con el string del **pooler IPv4** de Supabase
-   (igual que en CI: Render tampoco hace IPv6 por defecto).
+El repo incluye un **Blueprint** ([`render.yaml`](render.yaml)) que define el
+servicio como código (build, start, health check, Python 3.11).
+
+1. En [Render](https://render.com): **New + → Blueprint** y conectar este repo.
+   Render lee `render.yaml` y crea el *Web Service* (plan free).
+2. Configurar la única variable secreta `DATABASE_URL` con el string del
+   **pooler IPv4** de Supabase (igual que en CI: Render tampoco hace IPv6).
+3. Deploy. La API queda en `https://<servicio>.onrender.com` y la doc en `/docs`.
+
+> Build: `pip install -r requirements.txt` · Start:
+> `uvicorn src.api.main:app --host 0.0.0.0 --port $PORT` · Health check: `/health`.
+> Nota: en el plan free el servicio se duerme tras inactividad (primer request lento).
 
 ---
 
