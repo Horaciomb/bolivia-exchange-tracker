@@ -12,6 +12,7 @@ warning, sin romper el pipeline:
 """
 
 import logging
+from datetime import UTC, date, datetime
 
 from src.models.schemas import BOLIVIA_TZ, MAX_VENTA, CleanQuote, RawQuote
 
@@ -79,12 +80,38 @@ def calcular_brecha(oficial: RawQuote, binance: RawQuote) -> float:
     return round(brecha, 2)
 
 
+def derivar_fecha(ts: datetime) -> date:
+    """Deriva la fecha de la cotizacion a partir del timestamp de la fuente.
+
+    La fuente usa dos formatos distintos segun la casa:
+
+    - **binance**: timestamp real intradia (p. ej. ``2026-07-27T21:01:09.629Z``).
+      Se convierte a hora Bolivia (UTC-4) antes de truncar, para que una lectura
+      cerca de medianoche UTC no quede corrida un dia.
+    - **oficial**: desde julio 2026 la fuente ya no manda hora, sino la fecha
+      codificada como medianoche UTC (``2026-07-27T00:00:00.000Z``). Convertirla
+      a UTC-4 la retrocederia al dia anterior, asi que se toma literal.
+
+    Args:
+        ts: Timestamp ``fecha_actualizacion`` de la fuente (aware, UTC).
+
+    Returns:
+        Fecha de la cotizacion en hora Bolivia.
+    """
+    ts_utc = ts.astimezone(UTC)
+    es_fecha_sin_hora = (
+        ts_utc.hour == 0
+        and ts_utc.minute == 0
+        and ts_utc.second == 0
+        and ts_utc.microsecond == 0
+    )
+    if es_fecha_sin_hora:
+        return ts_utc.date()
+    return ts.astimezone(BOLIVIA_TZ).date()
+
+
 def to_clean(raw: RawQuote, brecha_pct: float | None) -> CleanQuote:
     """Normaliza una cotizacion cruda a CleanQuote.
-
-    Deriva ``fecha`` convirtiendo el timestamp de la fuente (UTC) a hora Bolivia
-    (UTC-4) antes de truncar a fecha, para que cerca de medianoche no quede
-    corrida un dia.
 
     Args:
         raw: Cotizacion cruda valida.
@@ -93,9 +120,8 @@ def to_clean(raw: RawQuote, brecha_pct: float | None) -> CleanQuote:
     Returns:
         Instancia de CleanQuote.
     """
-    fecha_bolivia = raw.fecha_actualizacion.astimezone(BOLIVIA_TZ).date()
     return CleanQuote(
-        fecha=fecha_bolivia,
+        fecha=derivar_fecha(raw.fecha_actualizacion),
         casa=raw.casa,
         compra=raw.compra,
         venta=raw.venta,
