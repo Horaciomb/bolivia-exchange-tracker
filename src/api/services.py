@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 # Columnas expuestas en las respuestas de cotizacion.
 _RATE_COLS = "fecha, casa, compra, venta, brecha_pct, fecha_actualizacion, imputado"
 
+# Filtro de la serie de brecha: solo binance la tiene, y siempre se consulta
+# por ventana de N dias. Compartido por /rates/brecha y /stats/summary para que
+# ambos midan exactamente el mismo universo de filas.
+_BRECHA_EN_VENTANA = """
+    WHERE casa = 'binance'
+      AND brecha_pct IS NOT NULL
+      AND fecha >= (CURRENT_DATE - %s::int)
+"""
+
 
 def check_db() -> bool:
     """Verifica la conectividad a la base de datos.
@@ -131,12 +140,10 @@ def get_brecha_series(dias: int = 30) -> list[dict]:
     """
     with get_cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT fecha, brecha_pct
             FROM fx.exchange_rates
-            WHERE casa = 'binance'
-              AND brecha_pct IS NOT NULL
-              AND fecha >= (CURRENT_DATE - %s::int)
+            {_BRECHA_EN_VENTANA}
             ORDER BY fecha ASC;
             """,
             (dias,),
@@ -155,16 +162,14 @@ def get_stats_summary(dias: int = 30) -> dict:
     """
     with get_cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 MIN(brecha_pct)            AS min,
                 MAX(brecha_pct)            AS max,
                 ROUND(AVG(brecha_pct), 2)  AS promedio,
                 COUNT(*)                   AS muestras
             FROM fx.exchange_rates
-            WHERE casa = 'binance'
-              AND brecha_pct IS NOT NULL
-              AND fecha >= (CURRENT_DATE - %s::int);
+            {_BRECHA_EN_VENTANA};
             """,
             (dias,),
         )

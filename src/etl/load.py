@@ -11,14 +11,15 @@ La connection string se lee de ``DATABASE_URL`` (nunca hardcodeada).
 """
 
 import logging
-import os
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import date
 
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
 from psycopg2.extras import execute_batch
 
+from src.db import SEARCH_PATH_SQL, get_database_url
 from src.models.schemas import CleanQuote
 
 logger = logging.getLogger(__name__)
@@ -82,16 +83,35 @@ def get_connection() -> PgConnection:
     Raises:
         KeyError: Si la variable de entorno DATABASE_URL no esta definida.
     """
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise KeyError(
-            "DATABASE_URL no esta definida. Copia .env.example a .env "
-            "y rellena la connection string."
-        )
-    conn = psycopg2.connect(db_url)
+    conn = psycopg2.connect(get_database_url())
     with conn.cursor() as cur:
-        cur.execute("SET search_path TO fx, public;")
+        cur.execute(SEARCH_PATH_SQL)
     return conn
+
+
+@contextmanager
+def _managed_connection(conn: PgConnection | None) -> Iterator[PgConnection]:
+    """Cede una conexion, cerrandola solo si la abrio esta funcion.
+
+    Las funciones publicas del modulo aceptan una conexion opcional para poder
+    encadenar operaciones en una misma transaccion (y para los tests). La regla
+    es que quien abre, cierra: una conexion prestada se devuelve intacta.
+
+    Args:
+        conn: Conexion prestada, o None para abrir una propia.
+
+    Yields:
+        La conexion a usar.
+    """
+    if conn is not None:
+        yield conn
+        return
+
+    propia = get_connection()
+    try:
+        yield propia
+    finally:
+        propia.close()
 
 
 def upsert_quotes(quotes: list[CleanQuote], conn: PgConnection | None = None) -> int:
@@ -112,23 +132,18 @@ def upsert_quotes(quotes: list[CleanQuote], conn: PgConnection | None = None) ->
         logger.info("No hay cotizaciones para cargar.")
         return 0
 
-    own_conn = conn is None
-    conn = conn or get_connection()
-
     rows = [q.model_dump() for q in quotes]
-    try:
-        with conn.cursor() as cur:
-            execute_batch(cur, _UPSERT_SQL, rows)
-        conn.commit()
-        logger.info("UPSERT de %d cotizaciones en fx.exchange_rates.", len(rows))
-        return len(rows)
-    except Exception:
-        conn.rollback()
-        logger.exception("Fallo el UPSERT; se hizo rollback.")
-        raise
-    finally:
-        if own_conn:
-            conn.close()
+    with _managed_connection(conn) as cx:
+        try:
+            with cx.cursor() as cur:
+                execute_batch(cur, _UPSERT_SQL, rows)
+            cx.commit()
+            logger.info("UPSERT de %d cotizaciones en fx.exchange_rates.", len(rows))
+            return len(rows)
+        except Exception:
+            cx.rollback()
+            logger.exception("Fallo el UPSERT; se hizo rollback.")
+            raise
 
 
 def fetch_huecos(
@@ -154,13 +169,6 @@ def fetch_huecos(
         Lista de tuplas ``(fecha, casa)`` faltantes, ordenada por fecha. Vacia
         si la serie es continua.
     """
-    own_conn = conn is None
-    conn = conn or get_connection()
-
-    try:
-        with conn.cursor() as cur:
-            cur.execute(_HUECOS_SQL, {"dias": dias, "casas": list(casas)})
-            return cur.fetchall()
-    finally:
-        if own_conn:
-            conn.close()
+    with _managed_connection(conn) as cx, cx.cursor() as cur:
+        cur.execute(_HUECOS_SQL, {"dias": dias, "casas": list(casas)})
+        return cur.fetchall()
