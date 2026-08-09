@@ -4,11 +4,16 @@ Usa conexion directa con psycopg2 (no supabase-py) y hace UPSERT sobre
 ``fx.exchange_rates`` con ``ON CONFLICT (fecha, casa)``, de modo que correr el
 ETL varias veces el mismo dia actualiza la fila en vez de duplicarla.
 
+Ademas expone ``fetch_huecos``, la consulta de continuidad que el pipeline usa
+para verificar que la serie historica no tenga dias sin cotizacion.
+
 La connection string se lee de ``DATABASE_URL`` (nunca hardcodeada).
 """
 
 import logging
 import os
+from collections.abc import Sequence
+from datetime import date
 
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
@@ -32,6 +37,36 @@ _UPSERT_SQL = """
         brecha_pct          = EXCLUDED.brecha_pct,
         fecha_actualizacion = EXCLUDED.fecha_actualizacion,
         imputado            = EXCLUDED.imputado;
+"""
+
+# Dias sin cotizacion dentro de la ventana vigilada, por casa.
+#
+# El rango va desde `hoy - dias` (acotado por el primer dia con datos, para no
+# reportar dias anteriores al inicio de la serie) hasta el ultimo dia cargado
+# (no hasta hoy: el ETL corre a las 23:00 UTC y esta consulta se ejecuta justo
+# despues del load, asi que el ultimo dia cargado ya es el dia en curso).
+_HUECOS_SQL = """
+    WITH rango AS (
+        SELECT
+            GREATEST(CURRENT_DATE - %(dias)s::int, MIN(fecha)) AS desde,
+            MAX(fecha)                                         AS hasta
+        FROM fx.exchange_rates
+    ),
+    esperado AS (
+        SELECT dia::date AS fecha, casa
+        FROM rango r
+        CROSS JOIN LATERAL generate_series(r.desde, r.hasta, INTERVAL '1 day') AS dia
+        CROSS JOIN unnest(%(casas)s::text[]) AS casa
+    )
+    SELECT e.fecha, e.casa
+    FROM esperado e
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM fx.exchange_rates r
+        WHERE r.fecha = e.fecha
+          AND r.casa = e.casa
+    )
+    ORDER BY e.fecha, e.casa;
 """
 
 
@@ -91,6 +126,41 @@ def upsert_quotes(quotes: list[CleanQuote], conn: PgConnection | None = None) ->
         conn.rollback()
         logger.exception("Fallo el UPSERT; se hizo rollback.")
         raise
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def fetch_huecos(
+    dias: int,
+    casas: Sequence[str],
+    conn: PgConnection | None = None,
+) -> list[tuple[date, str]]:
+    """Busca dias sin cotizacion en los ultimos N dias de la serie.
+
+    Complementa la verificacion de completitud de la corrida diaria: esa mira
+    solo el pull de hoy, esta mira la serie ya persistida. Cubre el caso en que
+    una corrida termina "exitosa" pero no deja fila nueva (p. ej. un UPSERT que
+    pisa una fila existente porque la fuente repitio la fecha), que fue
+    exactamente el mecanismo del hueco de julio 2026.
+
+    Args:
+        dias: Tamano de la ventana hacia atras desde hoy.
+        casas: Casas que deben existir cada dia.
+        conn: Conexion existente reutilizable (opcional). Si es None, se crea
+            una nueva y se cierra al terminar.
+
+    Returns:
+        Lista de tuplas ``(fecha, casa)`` faltantes, ordenada por fecha. Vacia
+        si la serie es continua.
+    """
+    own_conn = conn is None
+    conn = conn or get_connection()
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_HUECOS_SQL, {"dias": dias, "casas": list(casas)})
+            return cur.fetchall()
     finally:
         if own_conn:
             conn.close()
