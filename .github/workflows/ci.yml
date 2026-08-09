@@ -29,6 +29,8 @@ jobs:
       - name: Ruff (lint)
         run: ruff check .
 
-      - name: Pytest
+      - name: Pytest (con cobertura)
         # Los tests usan mocks; no requieren base de datos ni red.
-        run: pytest -q
+        # El umbral (fail_under) esta en pyproject.toml, para que correr
+        # `pytest --cov=src` en local de exactamente el mismo resultado.
+        run: pytest -q --cov=src

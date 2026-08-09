@@ -11,7 +11,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 
 from src.api import services
-from src.api.schemas import BrechaPoint, Casa, HistoryPage, RateOut, StatsSummary
+from src.api.schemas import BrechaPoint, HistoryPage, RateOut, StatsSummary
+from src.models.schemas import Casa
 
 rates_router = APIRouter(prefix="/rates", tags=["rates"])
 stats_router = APIRouter(prefix="/stats", tags=["stats"])

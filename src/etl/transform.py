@@ -14,7 +14,7 @@ warning, sin romper el pipeline:
 import logging
 from datetime import UTC, date, datetime
 
-from src.models.schemas import BOLIVIA_TZ, MAX_VENTA, CleanQuote, RawQuote
+from src.models.schemas import BOLIVIA_TZ, MAX_VENTA, Casa, CleanQuote, RawQuote
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +145,10 @@ def transform(extracted: dict[str, dict]) -> list[CleanQuote]:
     """
     clean: list[CleanQuote] = []
 
-    oficial_raw = parse_raw(extracted["oficial"])
-    binance_raw = parse_raw(extracted["binance"])
+    # Las dos casas se tratan por separado a proposito: la relacion es
+    # asimetrica, el oficial es el denominador de la brecha del paralelo.
+    oficial_raw = parse_raw(extracted[Casa.oficial])
+    binance_raw = parse_raw(extracted[Casa.binance])
 
     oficial_ok = validar_reglas(oficial_raw)
     binance_ok = validar_reglas(binance_raw)

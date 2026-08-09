@@ -31,12 +31,12 @@ from dotenv import load_dotenv
 from src.etl.extract import extract_all
 from src.etl.load import fetch_huecos, upsert_quotes
 from src.etl.transform import transform
-from src.models.schemas import CleanQuote
+from src.models.schemas import CASAS, CleanQuote
 
 logger = logging.getLogger(__name__)
 
 # Casas que toda corrida diaria debe cargar. Si falta alguna, la corrida falla.
-CASAS_ESPERADAS = ("oficial", "binance")
+CASAS_ESPERADAS = CASAS
 
 # Ventana hacia atras en la que la serie debe ser continua, sin dias faltantes.
 VENTANA_CONTINUIDAD_DIAS = 30

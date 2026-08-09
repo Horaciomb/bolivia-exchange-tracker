@@ -10,12 +10,13 @@ fija ``search_path`` a ``fx, public`` para no calificar el esquema en cada query
 """
 
 import logging
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
+
+from src.db import SEARCH_PATH_SQL, get_database_url
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,8 @@ def _get_pool() -> SimpleConnectionPool:
     """
     global _pool
     if _pool is None:
-        db_url = os.environ.get("DATABASE_URL")
-        if not db_url:
-            raise KeyError("DATABASE_URL no esta definida.")
         logger.info("Inicializando pool de conexiones PostgreSQL.")
-        _pool = SimpleConnectionPool(minconn=1, maxconn=5, dsn=db_url)
+        _pool = SimpleConnectionPool(minconn=1, maxconn=5, dsn=get_database_url())
     return _pool
 
 
@@ -53,7 +51,7 @@ def get_cursor() -> Iterator[RealDictCursor]:
     conn = pool.getconn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET search_path TO fx, public;")
+            cur.execute(SEARCH_PATH_SQL)
             yield cur
         conn.commit()
     except Exception:

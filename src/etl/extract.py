@@ -1,8 +1,8 @@
 """Extraccion de cotizaciones desde DolarApi Bolivia.
 
-Expone funciones para obtener las cotizaciones crudas (oficial y binance) y el
-estado de la fuente. La extraccion reintenta con backoff exponencial ante
-errores de red o respuestas 5xx antes de propagar la excepcion.
+Expone las funciones para obtener las cotizaciones crudas de cada casa. La
+extraccion reintenta con backoff exponencial ante errores de red o respuestas
+5xx antes de propagar la excepcion; un 4xx se propaga en el primer intento.
 """
 
 import logging
@@ -10,6 +10,8 @@ import os
 import time
 
 import requests
+
+from src.models.schemas import CASAS
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +27,10 @@ REQUEST_TIMEOUT_SECONDS = 10
 def _get_with_retries(url: str) -> dict:
     """Hace GET con reintentos y backoff exponencial.
 
-    Reintenta ante ``requests.RequestException`` (incluye timeouts y errores de
-    conexion) y ante respuestas con status >= 500. Los errores 4xx no se
-    reintentan porque indican un problema del cliente, no transitorio.
+    Se reintenta lo que puede recuperarse solo: errores de red y timeouts
+    (``requests.RequestException``) y respuestas 5xx, que indican que la fuente
+    esta caida. Un 4xx se propaga en el primer intento, porque significa que la
+    peticion esta mal (URL o casa inexistente) y reintentarla solo gasta tiempo.
 
     Args:
         url: URL absoluta a consultar.
@@ -36,31 +39,48 @@ def _get_with_retries(url: str) -> dict:
         El cuerpo JSON de la respuesta como dict.
 
     Raises:
-        requests.RequestException: Si todos los intentos fallan.
+        requests.HTTPError: Ante una respuesta 4xx (sin reintentar) o 5xx
+            persistente.
+        requests.RequestException: Si se agotan los reintentos por errores de
+            red.
     """
-    last_exc: Exception | None = None
+    last_exc: requests.RequestException | None = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-            if response.status_code >= 500:
-                response.raise_for_status()
-            response.raise_for_status()
-            return response.json()
         except requests.RequestException as exc:
+            # Red caida o timeout: transitorio.
             last_exc = exc
-            logger.warning(
-                "Intento %d/%d fallo para %s: %s",
-                attempt,
-                MAX_RETRIES,
-                url,
-                exc,
+        else:
+            if response.status_code < 400:
+                return response.json()
+
+            error = requests.HTTPError(
+                f"HTTP {response.status_code} en {url}", response=response
             )
-            if attempt < MAX_RETRIES:
-                time.sleep(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+            if response.status_code < 500:
+                logger.error(
+                    "Respuesta %d de %s: error del cliente, no se reintenta.",
+                    response.status_code,
+                    url,
+                )
+                raise error
+            last_exc = error
+
+        logger.warning(
+            "Intento %d/%d fallo para %s: %s",
+            attempt,
+            MAX_RETRIES,
+            url,
+            last_exc,
+        )
+        if attempt < MAX_RETRIES:
+            time.sleep(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
 
     logger.error("Agotados los %d reintentos para %s", MAX_RETRIES, url)
-    assert last_exc is not None
+    # El bucle solo llega aqui despues de al menos un fallo, asi que last_exc
+    # nunca es None.
     raise last_exc
 
 
@@ -79,23 +99,10 @@ def fetch_quote(casa: str) -> dict:
     return _get_with_retries(url)
 
 
-def fetch_estado() -> dict:
-    """Obtiene el estado de la fuente (health check de DolarApi).
-
-    Returns:
-        Dict con la clave ``estado`` (p. ej. "Disponible").
-    """
-    url = f"{BASE_URL}/v1/estado"
-    return _get_with_retries(url)
-
-
 def extract_all() -> dict[str, dict]:
-    """Extrae las cotizaciones oficial y binance.
+    """Extrae la cotizacion de todas las casas que rastrea el sistema.
 
     Returns:
-        Dict con las claves "oficial" y "binance", cada una con su dict crudo.
+        Dict con una clave por casa de ``CASAS``, cada una con su dict crudo.
     """
-    return {
-        "oficial": fetch_quote("oficial"),
-        "binance": fetch_quote("binance"),
-    }
+    return {casa: fetch_quote(casa) for casa in CASAS}

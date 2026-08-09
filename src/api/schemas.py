@@ -1,21 +1,17 @@
-"""Modelos de respuesta (pydantic) y tipos de entrada de la API.
+"""Modelos de respuesta (pydantic) de la API.
 
-Separados de ``src.models.schemas`` (que modela el ETL) para que la capa de
-presentacion del API quede aislada. FastAPI usa estos modelos para generar la
-documentacion Swagger en /docs.
+Separados de ``src.models.schemas`` (que modela el ETL) para que el contrato
+publico del API pueda evolucionar sin arrastrar el modelo de persistencia.
+FastAPI los usa para generar la documentacion Swagger en /docs.
+
+La excepcion es el enum ``Casa``: no es un detalle de presentacion sino
+vocabulario del dominio, asi que vive en ``src.models.schemas`` y los routers lo
+importan de ahi.
 """
 
 from datetime import date, datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, Field
-
-
-class Casa(StrEnum):
-    """Casas de cambio disponibles."""
-
-    oficial = "oficial"
-    binance = "binance"
 
 
 class RateOut(BaseModel):
