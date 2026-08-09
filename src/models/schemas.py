@@ -18,6 +18,7 @@ El formato real de la fuente fue confirmado con un curl en vivo, por ejemplo::
 """
 
 from datetime import date, datetime, timedelta, timezone
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +28,26 @@ BOLIVIA_TZ = timezone(timedelta(hours=-4))
 # Sanity check: el dolar en Bolivia no llega a 100 Bs. Una venta >= 100
 # indica un dato corrupto de la fuente y la fila se descarta.
 MAX_VENTA = 100.0
+
+
+class Casa(StrEnum):
+    """Casas de cambio que rastrea el sistema.
+
+    Vocabulario compartido por todas las capas: el extract arma la URL con
+    estos valores, el pipeline verifica que la corrida las traiga todas y el
+    API los usa para validar el path/query param. Vive aqui, en el dominio,
+    para que exista una sola definicion en vez de una por capa.
+
+    El unico lugar que la repite es el ``CHECK`` de ``sql/schema.sql``, que no
+    puede importar Python.
+    """
+
+    oficial = "oficial"
+    binance = "binance"
+
+
+# Tupla de valores, para iterar y para las queries que reciben arrays de texto.
+CASAS: tuple[str, ...] = tuple(casa.value for casa in Casa)
 
 
 class RawQuote(BaseModel):
