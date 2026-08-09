@@ -6,7 +6,7 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import services
+from src.api import main, services
 from src.api.main import app
 from src.version import get_version
 
@@ -40,6 +40,18 @@ def test_root():
     assert body["docs"] == "/docs"
     # La version que anuncia el API es la declarada en pyproject.toml.
     assert body["version"] == get_version()
+
+
+def test_lifespan_carga_el_entorno_al_arrancar(monkeypatch):
+    """El .env se lee en el startup, no al importar el modulo."""
+    llamadas = []
+    monkeypatch.setattr(main, "load_dotenv", lambda: llamadas.append("load_dotenv"))
+
+    # TestClient como context manager es lo que dispara el lifespan.
+    with TestClient(app):
+        pass
+
+    assert llamadas == ["load_dotenv"]
 
 
 def test_health_db_up(monkeypatch):

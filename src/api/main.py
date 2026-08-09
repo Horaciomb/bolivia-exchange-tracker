@@ -18,15 +18,20 @@ from src.version import get_version
 
 logger = logging.getLogger(__name__)
 
-# En local lee .env (subiendo desde src/api/); en prod las vars vienen del entorno.
-load_dotenv()
-
 API_VERSION = get_version()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Ciclo de vida: cierra el pool de conexiones al apagar."""
+    """Ciclo de vida del API: carga el entorno al arrancar, libera al apagar.
+
+    ``load_dotenv`` va aqui y no a nivel de modulo para que importar la app no
+    tenga efectos sobre el entorno del proceso. Es seguro porque el pool de
+    conexiones se crea de forma perezosa, en la primera query real, que siempre
+    ocurre despues del arranque.
+    """
+    # En local lee .env; en CI/prod las vars ya vienen del entorno (no-op).
+    load_dotenv()
     yield
     close_pool()
 
