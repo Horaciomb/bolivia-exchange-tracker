@@ -1,8 +1,8 @@
 """Extraccion de cotizaciones desde DolarApi Bolivia.
 
-Expone funciones para obtener las cotizaciones crudas (oficial y binance) y el
-estado de la fuente. La extraccion reintenta con backoff exponencial ante
-errores de red o respuestas 5xx antes de propagar la excepcion.
+Expone las funciones para obtener las cotizaciones crudas de cada casa. La
+extraccion reintenta con backoff exponencial ante errores de red o respuestas
+5xx antes de propagar la excepcion; un 4xx se propaga en el primer intento.
 """
 
 import logging
@@ -96,16 +96,6 @@ def fetch_quote(casa: str) -> dict:
     """
     url = f"{BASE_URL}/v1/dolares/{casa}"
     logger.info("Extrayendo cotizacion '%s' desde %s", casa, url)
-    return _get_with_retries(url)
-
-
-def fetch_estado() -> dict:
-    """Obtiene el estado de la fuente (health check de DolarApi).
-
-    Returns:
-        Dict con la clave ``estado`` (p. ej. "Disponible").
-    """
-    url = f"{BASE_URL}/v1/estado"
     return _get_with_retries(url)
 
 
