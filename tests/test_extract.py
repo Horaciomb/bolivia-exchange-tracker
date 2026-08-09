@@ -6,6 +6,7 @@ import pytest
 import requests
 
 from src.etl import extract
+from src.models.schemas import CASAS
 
 OFICIAL_PAYLOAD = {
     "moneda": "USD",
@@ -71,14 +72,21 @@ def test_falla_tras_tres_reintentos(monkeypatch):
     assert mock_get.call_count == extract.MAX_RETRIES
 
 
-def test_error_5xx_se_reintenta(monkeypatch):
-    # Una respuesta 500 dispara raise_for_status -> se reintenta.
-    resp_500 = MagicMock()
-    resp_500.status_code = 503
-    resp_500.raise_for_status.side_effect = requests.HTTPError("503")
+def _error_response(status: int) -> MagicMock:
+    """Respuesta mock con un status de error."""
+    resp = MagicMock()
+    resp.status_code = status
+    return resp
 
+
+def test_error_5xx_se_reintenta(monkeypatch):
+    # 5xx = la fuente esta caida: puede recuperarse, se reintenta.
     mock_get = MagicMock(
-        side_effect=[resp_500, resp_500, _ok_response(OFICIAL_PAYLOAD)]
+        side_effect=[
+            _error_response(503),
+            _error_response(503),
+            _ok_response(OFICIAL_PAYLOAD),
+        ]
     )
     monkeypatch.setattr(extract.requests, "get", mock_get)
 
@@ -86,6 +94,29 @@ def test_error_5xx_se_reintenta(monkeypatch):
 
     assert result == OFICIAL_PAYLOAD
     assert mock_get.call_count == 3
+
+
+def test_error_5xx_persistente_agota_los_reintentos(monkeypatch):
+    mock_get = MagicMock(return_value=_error_response(500))
+    monkeypatch.setattr(extract.requests, "get", mock_get)
+
+    with pytest.raises(requests.HTTPError):
+        extract.fetch_quote("oficial")
+
+    assert mock_get.call_count == extract.MAX_RETRIES
+
+
+def test_error_4xx_no_se_reintenta(monkeypatch):
+    """Un 4xx es un problema de la peticion: reintentarlo solo gasta tiempo."""
+    mock_get = MagicMock(return_value=_error_response(404))
+    monkeypatch.setattr(extract.requests, "get", mock_get)
+
+    with pytest.raises(requests.HTTPError) as exc:
+        extract.fetch_quote("inexistente")
+
+    # Falla al primer intento, sin agotar la politica de reintentos.
+    assert mock_get.call_count == 1
+    assert "404" in str(exc.value)
 
 
 def test_extract_all_devuelve_ambas_casas(monkeypatch):
@@ -100,3 +131,13 @@ def test_extract_all_devuelve_ambas_casas(monkeypatch):
 
     assert set(result.keys()) == {"oficial", "binance"}
     assert result["binance"]["casa"] == "binance"
+
+
+def test_extract_all_recorre_las_casas_del_dominio(monkeypatch):
+    """Las casas salen de CASAS, no de una lista hardcodeada en el extract."""
+    pedidas = []
+    monkeypatch.setattr(extract, "fetch_quote", lambda casa: pedidas.append(casa) or {})
+
+    extract.extract_all()
+
+    assert pedidas == list(CASAS)
