@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.api import services
 from src.api.main import app
+from src.version import get_version
 
 client = TestClient(app)
 
@@ -37,6 +38,8 @@ def test_root():
     body = resp.json()
     assert body["name"]
     assert body["docs"] == "/docs"
+    # La version que anuncia el API es la declarada en pyproject.toml.
+    assert body["version"] == get_version()
 
 
 def test_health_db_up(monkeypatch):

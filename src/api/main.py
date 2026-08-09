@@ -14,13 +14,14 @@ from src.api import services
 from src.api.database import close_pool
 from src.api.routers import rates
 from src.api.schemas import HealthOut, RootOut
+from src.version import get_version
 
 logger = logging.getLogger(__name__)
 
 # En local lee .env (subiendo desde src/api/); en prod las vars vienen del entorno.
 load_dotenv()
 
-API_VERSION = "0.1.0"
+API_VERSION = get_version()
 
 
 @asynccontextmanager
