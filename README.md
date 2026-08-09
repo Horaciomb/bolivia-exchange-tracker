@@ -96,16 +96,89 @@ PostgreSQL compartida (no requiere un proyecto Supabase nuevo). Tabla
 correr el ETL varias veces el mismo día actualiza la fila en lugar de duplicarla.
 
 **Integridad de datos (`imputado`):** DolarApi solo expone la cotización actual
-(sin histórico), así que un día perdido no se puede recuperar de la fuente. Si se
-hace *backfill* de un hueco, la fila se inserta con `imputado = true` (estimada por
-interpolación o carry-forward) para distinguirla de los datos reales. El pipeline
-diario siempre carga `imputado = false`. El API expone este flag en cada cotización.
+(sin histórico), así que un día perdido no se puede volver a pedir. Toda fila que
+no provenga de una extracción directa se marca `imputado = true` para distinguirla
+del dato observado. El pipeline diario siempre carga `imputado = false`, y el API
+expone el flag en cada cotización. Ver [Calidad de datos](#-calidad-de-datos).
 
 La **brecha cambiaria** se calcula como:
 
 ```
 brecha_pct = ((binance.venta - oficial.venta) / oficial.venta) * 100
 ```
+
+---
+
+## 🔍 Calidad de datos
+
+Un pipeline que corre solo sirve de poco si nadie se entera cuando falla a medias.
+Esta sección documenta un incidente real del proyecto, cómo se corrigió y qué
+controles quedaron para que no se repita en silencio.
+
+### El incidente (julio 2026)
+
+Tras el cambio de régimen cambiario del 29-jun, la fuente **cambió el formato del
+payload** de la casa `oficial`: dejó de mandar un timestamp real y pasó a codificar
+solo la fecha, como medianoche UTC.
+
+```jsonc
+// binance: timestamp intradía real
+"fechaActualizacion": "2026-07-27T21:01:09.629Z"
+// oficial: la fecha, codificada como medianoche UTC
+"fechaActualizacion": "2026-07-27T00:00:00.000Z"
+```
+
+El `transform` normalizaba ese valor a hora Bolivia (UTC-4) — correcto para un
+timestamp intradía, destructivo sobre una medianoche UTC: le restaba 4 horas y lo
+retrocedía al día anterior. Esto produjo dos daños distintos:
+
+| Efecto | Alcance | Causa |
+|--------|---------|-------|
+| Fechas corridas un día | 18 filas `oficial` | La conversión de TZ sobre una fecha sin hora |
+| Días sin cotización | 10 días `oficial` | El UPSERT pisaba la fila existente en vez de crear una nueva |
+
+Nada de esto rompió el pipeline: las Actions siguieron en verde todo el tiempo.
+
+### Diagnóstico y corrección
+
+El desfase se detectó porque `brecha_pct` — calculada correctamente en el momento
+del pull — **no se reproducía** con un `JOIN` por fecha, pero sí contra el oficial
+del día anterior. El fix vive en
+[`transform.py::derivar_fecha`](src/etl/transform.py), que distingue los dos
+formatos, y la reparación de los datos ya cargados en
+[`sql/migrations/`](sql/migrations/).
+
+Los 10 días perdidos **no requirieron una fuente externa ni interpolación**: la
+serie `binance` estaba completa y conservaba su brecha, y la fórmula es invertible.
+
+```
+brecha_pct = ((binance.venta - oficial.venta) / oficial.venta) * 100
+     =>  oficial.venta = binance.venta / (1 + brecha_pct / 100)
+```
+
+El valor oficial nunca se perdió: estaba codificado dentro de la brecha. Validado
+contra los 35 días que sí tenían ambas casas, la inversión reproduce
+`oficial.venta` con un **error máximo de 0.0006 Bs** (redondeo de `brecha_pct` a
+2 decimales). Como `compra` no participa en la fórmula y se derivó del spread del
+último día conocido, las filas quedan marcadas `imputado = true`.
+
+### Controles automáticos
+
+El pipeline corre dos verificaciones después de cargar. Cualquiera de las dos
+termina con **exit code 1** y pone la Action en rojo, aunque la carga haya
+funcionado:
+
+| Control | Qué verifica | Qué atrapa |
+|---------|--------------|------------|
+| **Completitud de la corrida** | Que el pull de hoy traiga todas las casas esperadas | La fuente caída o una fila descartada por los sanity checks |
+| **Continuidad de la serie** | Que no falte ningún día en los últimos 30, consultando la tabla | Una corrida "exitosa" que no dejó fila nueva — el mecanismo exacto del incidente |
+
+El segundo control es el que faltaba: la completitud mira el pull, no el resultado
+persistido. Ambos se cargan siempre *después* del `load`, de modo que una casa
+caída nunca hace perder la otra.
+
+> Las filas imputadas se cuentan como presentes: reparar un hueco con un backfill
+> documentado (`imputado = true`) es lo que devuelve la Action a verde.
 
 ---
 
@@ -137,8 +210,8 @@ bolivia-exchange-tracker/
 │   ├── etl/
 │   │   ├── extract.py       # llama a DolarApi (reintentos + backoff)
 │   │   ├── transform.py     # valida, calcula brecha, normaliza fecha
-│   │   ├── load.py          # UPSERT idempotente a fx.exchange_rates
-│   │   └── pipeline.py      # orquestador extract→transform→load
+│   │   ├── load.py          # UPSERT idempotente + chequeo de continuidad
+│   │   └── pipeline.py      # orquestador extract→transform→load + alertas
 │   ├── models/
 │   │   └── schemas.py       # modelos pydantic del ETL (RawQuote, CleanQuote)
 │   └── api/
@@ -150,7 +223,8 @@ bolivia-exchange-tracker/
 │           └── rates.py     # endpoints /rates/* y /stats/*
 ├── tests/                   # pytest (extract, transform, load, api) — con mocks
 ├── sql/
-│   └── schema.sql           # DDL del esquema fx y la tabla
+│   ├── schema.sql           # DDL del esquema fx y la tabla
+│   └── migrations/          # correcciones de datos, con contexto y verificación
 ├── .env.example
 ├── requirements.txt
 ├── pyproject.toml           # config de ruff y pytest
@@ -233,8 +307,9 @@ pytest -q        # tests (usan mocks; no requieren DB ni red)
 ```
 
 La suite cubre el cálculo de brecha, la validación de reglas de negocio, el
-manejo de timezone, los reintentos del extract, el UPSERT del load y cada
-endpoint de la API.
+manejo de timezone (incluidos los dos formatos de fecha de la fuente), los
+reintentos del extract, el UPSERT del load, las dos alertas de calidad de datos
+y cada endpoint de la API.
 
 ---
 
@@ -243,7 +318,7 @@ endpoint de la API.
 | Workflow | Disparador | Qué hace |
 |----------|-----------|----------|
 | **CI** | push a `main`/`dev`, PR a `main` | `ruff check` + `pytest` |
-| **ETL diario** | cron `0 23 * * *` (UTC) + manual | corre el pipeline contra la DB |
+| **ETL diario** | cron `0 23 * * *` (UTC) + manual | corre el pipeline y falla si la carga quedó incompleta |
 
 El ETL requiere el secret **`DATABASE_URL`** configurado en
 *Settings → Secrets and variables → Actions*.

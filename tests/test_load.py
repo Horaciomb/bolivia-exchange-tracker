@@ -87,3 +87,51 @@ def test_get_connection_sin_env_lanza(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(KeyError):
         load.get_connection()
+
+
+# --- fetch_huecos: chequeo de continuidad de la serie ----------------------
+
+
+def _mock_conn_con_filas(filas: list) -> tuple[MagicMock, MagicMock]:
+    conn = _mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.fetchall.return_value = filas
+    return conn, cursor
+
+
+def test_fetch_huecos_sin_huecos_devuelve_lista_vacia():
+    conn, _ = _mock_conn_con_filas([])
+    assert load.fetch_huecos(30, ("oficial", "binance"), conn=conn) == []
+
+
+def test_fetch_huecos_devuelve_las_tuplas_fecha_casa():
+    faltantes = [(date(2026, 7, 11), "oficial"), (date(2026, 7, 12), "oficial")]
+    conn, _ = _mock_conn_con_filas(faltantes)
+
+    assert load.fetch_huecos(30, ("oficial", "binance"), conn=conn) == faltantes
+
+
+def test_fetch_huecos_pasa_ventana_y_casas_como_parametros():
+    """Nunca por interpolacion de strings; las casas van como array de texto."""
+    conn, cursor = _mock_conn_con_filas([])
+
+    load.fetch_huecos(15, ("oficial", "binance"), conn=conn)
+
+    sql, params = cursor.execute.call_args.args
+    assert sql == load._HUECOS_SQL
+    assert params == {"dias": 15, "casas": ["oficial", "binance"]}
+
+
+def test_fetch_huecos_no_cierra_una_conexion_ajena():
+    conn, _ = _mock_conn_con_filas([])
+    load.fetch_huecos(30, ("oficial",), conn=conn)
+    conn.close.assert_not_called()
+
+
+def test_fetch_huecos_cierra_la_conexion_que_abrio(monkeypatch):
+    conn, _ = _mock_conn_con_filas([])
+    monkeypatch.setattr(load, "get_connection", lambda: conn)
+
+    load.fetch_huecos(30, ("oficial",))
+
+    conn.close.assert_called_once()

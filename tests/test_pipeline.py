@@ -1,4 +1,4 @@
-"""Tests de pipeline.py: alerta de completitud de la corrida diaria."""
+"""Tests de pipeline.py: alertas de completitud y de continuidad de la serie."""
 
 from datetime import UTC, date, datetime
 
@@ -45,8 +45,13 @@ def test_casas_faltantes_lista_todas_si_no_hay_nada():
 
 @pytest.fixture
 def etl_mocks(mocker):
-    """Mockea los tres pasos del ETL y devuelve el mock del load."""
+    """Mockea los pasos del ETL y devuelve el mock del load.
+
+    ``fetch_huecos`` se mockea sin huecos por defecto: los tests que verifican
+    la continuidad lo re-mockean con su propio valor.
+    """
     mocker.patch.object(pipeline, "extract_all", return_value={})
+    mocker.patch.object(pipeline, "fetch_huecos", return_value=[])
     load = mocker.patch.object(pipeline, "upsert_quotes", side_effect=len)
     return load
 
@@ -93,6 +98,57 @@ def test_mensaje_de_error_nombra_las_casas_faltantes():
     assert "oficial" in str(exc)
 
 
+# --- continuidad de la serie historica ------------------------------------
+
+
+def test_run_falla_si_la_serie_tiene_huecos(mocker, etl_mocks):
+    """La corrida trajo todo, pero la serie persistida tiene un dia faltante."""
+    mocker.patch.object(pipeline, "transform", return_value=[_quote("oficial"), _quote("binance")])
+    mocker.patch.object(
+        pipeline, "fetch_huecos", return_value=[(date(2026, 7, 11), "oficial")]
+    )
+
+    with pytest.raises(pipeline.SerieIncompletaError) as exc:
+        pipeline.run()
+
+    assert exc.value.huecos == [(date(2026, 7, 11), "oficial")]
+
+
+def test_run_verifica_la_continuidad_con_la_ventana_configurada(mocker, etl_mocks):
+    mocker.patch.object(pipeline, "transform", return_value=[_quote("oficial"), _quote("binance")])
+    huecos = mocker.patch.object(pipeline, "fetch_huecos", return_value=[])
+
+    pipeline.run()
+
+    huecos.assert_called_once_with(
+        pipeline.VENTANA_CONTINUIDAD_DIAS, pipeline.CASAS_ESPERADAS
+    )
+
+
+def test_run_no_consulta_continuidad_si_la_corrida_ya_esta_incompleta(mocker, etl_mocks):
+    """Si ya falta una casa, no tiene sentido gastar una query mas."""
+    mocker.patch.object(pipeline, "transform", return_value=[_quote("binance")])
+    huecos = mocker.patch.object(pipeline, "fetch_huecos", return_value=[])
+
+    with pytest.raises(pipeline.CotizacionesIncompletasError):
+        pipeline.run()
+
+    huecos.assert_not_called()
+
+
+def test_mensaje_de_serie_incompleta_nombra_fecha_y_casa():
+    exc = pipeline.SerieIncompletaError([(date(2026, 7, 11), "oficial")])
+    mensaje = str(exc)
+    assert "2026-07-11" in mensaje
+    assert "oficial" in mensaje
+
+
+def test_ambas_alertas_comparten_la_base(mocker):
+    """main() las trata igual, asi que deben colgar del mismo tipo base."""
+    assert issubclass(pipeline.CotizacionesIncompletasError, pipeline.AlertaDeDatosError)
+    assert issubclass(pipeline.SerieIncompletaError, pipeline.AlertaDeDatosError)
+
+
 # --- main(): exit code 1, que es lo que hace fallar la GitHub Action -------
 
 
@@ -100,6 +156,20 @@ def test_main_sale_con_codigo_1_si_la_corrida_es_incompleta(mocker):
     mocker.patch.object(pipeline, "load_dotenv")
     mocker.patch.object(
         pipeline, "run", side_effect=pipeline.CotizacionesIncompletasError(["oficial"])
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        pipeline.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_sale_con_codigo_1_si_la_serie_tiene_huecos(mocker):
+    mocker.patch.object(pipeline, "load_dotenv")
+    mocker.patch.object(
+        pipeline,
+        "run",
+        side_effect=pipeline.SerieIncompletaError([(date(2026, 7, 11), "oficial")]),
     )
 
     with pytest.raises(SystemExit) as exc:
