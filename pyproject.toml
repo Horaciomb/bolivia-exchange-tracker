@@ -15,4 +15,19 @@ select = ["E", "W", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# La cobertura no va en addopts a proposito: `pytest` local queda rapido y el
+# reporte se pide explicitamente con `pytest --cov=src` (el CI lo hace siempre).
 addopts = "-v"
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+# Umbral por debajo del valor actual (99%), para que un descuido puntual no
+# frene el CI pero una caida real si. Subirlo cuando el margen sobre.
+fail_under = 90
+show_missing = true
+exclude_also = [
+    # Entry point del pipeline: se prueba main(), no la invocacion por CLI.
+    'if __name__ == .__main__.:',
+]

@@ -302,14 +302,16 @@ uvicorn src.api.main:app --reload
 ## ✅ Tests y linting
 
 ```bash
-ruff check .     # lint
-pytest -q        # tests (usan mocks; no requieren DB ni red)
+ruff check .           # lint
+pytest -q              # tests (usan mocks; no requieren DB ni red)
+pytest -q --cov=src    # tests + cobertura (umbral 90%, actual 99%)
 ```
 
 La suite cubre el cálculo de brecha, la validación de reglas de negocio, el
-manejo de timezone (incluidos los dos formatos de fecha de la fuente), los
-reintentos del extract, el UPSERT del load, las dos alertas de calidad de datos
-y cada endpoint de la API.
+manejo de timezone (incluidos los dos formatos de fecha de la fuente), la
+política de reintentos del extract, el UPSERT y el chequeo de continuidad del
+load, las dos alertas de calidad de datos, el SQL de la capa de servicios y cada
+endpoint de la API.
 
 ---
 
@@ -317,7 +319,7 @@ y cada endpoint de la API.
 
 | Workflow | Disparador | Qué hace |
 |----------|-----------|----------|
-| **CI** | push a `main`/`dev`, PR a `main` | `ruff check` + `pytest` |
+| **CI** | push a `main`/`dev`, PR a `main` | `ruff check` + `pytest` con umbral de cobertura |
 | **ETL diario** | cron `0 23 * * *` (UTC) + manual | corre el pipeline y falla si la carga quedó incompleta |
 
 El ETL requiere el secret **`DATABASE_URL`** configurado en
